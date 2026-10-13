@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from functools import partial
 from typing import Any, TypedDict, Annotated
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -34,16 +35,19 @@ class AgentGraph:
         self.settings = runtime_settings or settings
         self.llm = llm or LLMClient(runtime_settings=self.settings)
         self.session_store = session_store or SQLiteSessionStore(self.settings.session_db)
+        knowledge_tool = partial(search_knowledge_base, backend=self.settings.rag_backend,
+                                 service_url=self.settings.rag_service_url,
+                                 request_timeout=self.settings.rag_timeout_seconds)
         if self.settings.tool_transport == "mcp":
             registry = MCPRegistry(StdioMCPClient(timeout=self.settings.tool_timeout_seconds))
             registry.discover()
             if "search_knowledge_base" in registry.callables:
                 raise ValueError("MCP tool collides with local search_knowledge_base")
-            self.tools = {**registry.callables, "search_knowledge_base": search_knowledge_base}
+            self.tools = {**registry.callables, "search_knowledge_base": knowledge_tool}
             self.schemas = registry.schemas + [rag_tool_schema()]
             self.sources = {name: "mcp" for name in registry.callables}
         elif self.settings.tool_transport == "local":
-            self.tools = tool_map({"search_knowledge_base": search_knowledge_base})
+            self.tools = tool_map({"search_knowledge_base": knowledge_tool})
             self.schemas = TOOL_SCHEMAS + [rag_tool_schema()]
             self.sources = {name: "local" for name in self.tools}
         else:
@@ -114,6 +118,8 @@ class AgentGraph:
                     if attempts < 2:
                         time.sleep(0.1)
             traces.append({"tool": name, "source": self.sources.get(name, "unknown"), "call_id": call_id, "status": status, "attempts": attempts, "latency_ms": round((time.perf_counter() - started) * 1000, 2)})
+            if name == "search_knowledge_base":
+                traces[-1]["retrieval_backend"] = self.settings.rag_backend
             plan = settle_tool(plan, call_id, status)
             outputs.append(ToolMessage(content=content, tool_call_id=call_id, name=name))
         return {"messages": outputs, "tool_trace": traces, "errors": errors, "plan": plan}

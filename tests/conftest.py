@@ -9,6 +9,7 @@ import pytest
 # python-dotenv does not override an already set environment variable.
 os.environ["DEEPSEEK_API_KEY"] = ""
 os.environ["TOOL_TRANSPORT"] = "local"
+os.environ["RAG_BACKEND"] = "demo"
 
 from app import graph, llm_client
 

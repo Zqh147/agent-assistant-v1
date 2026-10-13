@@ -93,6 +93,7 @@ def evaluate(mode="offline", transport="local", output=None, case_ids=None):
     records = []
     with TemporaryDirectory(prefix="agent-eval-") as temp:
         cfg = replace(settings, api_key="" if mode == "offline" else settings.api_key,
+                      rag_backend="demo" if mode == "offline" else settings.rag_backend,
                       tool_transport=transport, session_db=Path(temp) / "sessions.db")
         store = SQLiteSessionStore(cfg.session_db)
         for case in selected:
@@ -135,6 +136,7 @@ def evaluate(mode="offline", transport="local", output=None, case_ids=None):
     tool_count = sum(len((r["result"] or {}).get("tool_trace", [])) for r in records)
     report = {"schema_version": 1, "run_id": run_id, "created_at": datetime.now(timezone.utc).isoformat(),
               "mode": mode, "transport": transport, "model": settings.model if mode == "online" else "scripted_fixture",
+              "rag_backend": cfg.rag_backend,
               "scope": "Finite acceptance set; offline fixtures validate execution, not model quality. Restore case uses a new graph instance, not an OS restart.",
               "summary": {"cases": len(records), "passed": passed, "failed": len(records)-passed,
                           "pass_rate": passed / len(records), "avg_tool_calls": tool_count / len(records),

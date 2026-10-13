@@ -18,6 +18,9 @@ class Settings:
     knowledge_path: Path = ROOT / os.getenv("KNOWLEDGE_PATH", "data/knowledge.md")
     session_db: Path = ROOT / os.getenv("SESSION_DB", "data/agent_sessions.db")
     tool_transport: str = os.getenv("TOOL_TRANSPORT", "local")
+    rag_backend: str = os.getenv("RAG_BACKEND", "demo")
+    rag_service_url: str = os.getenv("RAG_SERVICE_URL", "http://127.0.0.1:8001")
+    rag_timeout_seconds: float = float(os.getenv("RAG_TIMEOUT_SECONDS", "30"))
 
 
 settings = Settings()
