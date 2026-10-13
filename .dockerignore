@@ -1,0 +1,16 @@
+.git
+.venv
+venv
+**/__pycache__
+.pytest_cache
+.env
+.env.*
+!.env.example
+**/*.db
+**/*.db-*
+**/*.sqlite
+**/*.sqlite3
+reports
+*.zip
+dist
+build

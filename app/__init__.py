@@ -1,0 +1,1 @@
+"""Agent Assistant application package."""
