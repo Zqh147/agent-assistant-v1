@@ -10,6 +10,7 @@ import pytest
 os.environ["DEEPSEEK_API_KEY"] = ""
 os.environ["TOOL_TRANSPORT"] = "local"
 os.environ["RAG_BACKEND"] = "demo"
+os.environ["SUPPORT_MODE"] = "off"
 
 from app import graph, llm_client
 
@@ -19,4 +20,4 @@ def isolated_agent_environment(monkeypatch, tmp_path):
     # Force the deterministic offline client, even when a real .env exists.
     monkeypatch.setattr(llm_client, "settings", replace(llm_client.settings, api_key=""))
     # Each test gets a fresh database; never read/write the user's conversations.
-    monkeypatch.setattr(graph, "settings", replace(graph.settings, session_db=tmp_path / "sessions.db"))
+    monkeypatch.setattr(graph, "settings", replace(graph.settings, session_db=tmp_path / "sessions.db", support_db=tmp_path / "support.db"))

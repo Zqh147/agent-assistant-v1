@@ -17,3 +17,7 @@ build/
 *.sqlite3
 reports/
 *.zip
+
+# Generated support data and private configuration backups
+data/private_backups/
+.env.support-tmp

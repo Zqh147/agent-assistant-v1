@@ -1,0 +1,11 @@
+{
+  "data_kind": "fictional_demo_orders",
+  "description": "本地示例订单，不连接电商平台或真实客户账户。首次建库时按相对交付天数生成日期，重启不重置订单。",
+  "orders": [
+    {"order_id":"DEMO-1001","customer_id":"demo-customer-001","product_model":"Archer AX10","hardware_version":"V1","region":"US","status":"delivered","delivered_days_ago":3},
+    {"order_id":"DEMO-1002","customer_id":"demo-customer-001","product_model":"Archer AX20","hardware_version":"V1","region":"US","status":"delivered","delivered_days_ago":90},
+    {"order_id":"DEMO-1003","customer_id":"demo-customer-001","product_model":"Archer AX10","hardware_version":"V1","region":"US","status":"delivered","delivered_days_ago":400},
+    {"order_id":"DEMO-1004","customer_id":"demo-customer-002","product_model":"Archer AX20","hardware_version":"V1","region":"US","status":"delivered","delivered_days_ago":2},
+    {"order_id":"DEMO-1005","customer_id":"demo-customer-001","product_model":"Archer AX10","hardware_version":"V1","region":"US","status":"shipped","delivered_days_ago":null}
+  ]
+}

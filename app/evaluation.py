@@ -94,7 +94,7 @@ def evaluate(mode="offline", transport="local", output=None, case_ids=None):
     with TemporaryDirectory(prefix="agent-eval-") as temp:
         cfg = replace(settings, api_key="" if mode == "offline" else settings.api_key,
                       rag_backend="demo" if mode == "offline" else settings.rag_backend,
-                      tool_transport=transport, session_db=Path(temp) / "sessions.db")
+                      tool_transport=transport, session_db=Path(temp) / "sessions.db", support_mode="off")
         store = SQLiteSessionStore(cfg.session_db)
         for case in selected:
             tick = time.perf_counter()

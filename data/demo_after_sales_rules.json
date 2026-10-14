@@ -1,0 +1,9 @@
+{
+  "policy_version": "demo-support-v1",
+  "policy_kind": "fictional_demo_policy",
+  "notice": "以下是项目演示规则，不代表 TP-Link、电商平台的正式售后政策或法律规定。通过判断仅表示可提交演示申请，具体结果待人工审核。",
+  "rules": {
+    "repair": {"rule_id":"DEMO-POLICY-REPAIR","title":"演示维修申请规则","max_days_since_delivery":365,"required_order_status":"delivered","text":"演示订单已经交付，且交付后未超过 365 天时，可提交维修申请；需要订单号与故障描述。"},
+    "return": {"rule_id":"DEMO-POLICY-RETURN","title":"演示退货申请规则","max_days_since_delivery":7,"required_order_status":"delivered","text":"演示订单已经交付，且交付后未超过 7 天时，可提交退货申请；需要订单号与问题描述。"}
+  }
+}

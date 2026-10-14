@@ -20,9 +20,13 @@ class SQLiteSessionStore:
                     messages TEXT NOT NULL,
                     tool_trace TEXT NOT NULL,
                     errors TEXT NOT NULL,
+                    business_context TEXT NOT NULL DEFAULT '{}',
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )"""
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+            if "business_context" not in columns:
+                conn.execute("ALTER TABLE sessions ADD COLUMN business_context TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
     def _connect(self):
@@ -40,9 +44,9 @@ class SQLiteSessionStore:
             row = conn.execute("SELECT * FROM sessions WHERE thread_id = ?", (thread_id,)).fetchone()
         if row is None:
             return None
-        return {"messages": json.loads(row["messages"]), "tool_trace": json.loads(row["tool_trace"]), "errors": json.loads(row["errors"])}
+        return {"messages": json.loads(row["messages"]), "tool_trace": json.loads(row["tool_trace"]), "errors": json.loads(row["errors"]), "business_context": json.loads(row["business_context"])}
 
-    def save(self, thread_id: str, messages: list[dict[str, Any]], tool_trace: list[dict[str, Any]], errors: list[str]) -> None:
+    def save(self, thread_id: str, messages: list[dict[str, Any]], tool_trace: list[dict[str, Any]], errors: list[str], business_context=None) -> None:
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO sessions(thread_id, messages, tool_trace, errors, updated_at)
@@ -51,6 +55,16 @@ class SQLiteSessionStore:
                    tool_trace=excluded.tool_trace, errors=excluded.errors, updated_at=CURRENT_TIMESTAMP""",
                 (thread_id, json.dumps(messages, ensure_ascii=False), json.dumps(tool_trace, ensure_ascii=False), json.dumps(errors, ensure_ascii=False)),
             )
+            if business_context is not None:
+                conn.execute("UPDATE sessions SET business_context=? WHERE thread_id=?", (json.dumps(business_context, ensure_ascii=False), thread_id))
+
+    def save_business_context(self, thread_id, context):
+        """Persist business progress even if a later model response fails."""
+        with self._connect() as conn:
+            conn.execute("""INSERT INTO sessions(thread_id,messages,tool_trace,errors,business_context)
+                            VALUES (?,'[]','[]','[]',?) ON CONFLICT(thread_id) DO UPDATE
+                            SET business_context=excluded.business_context,updated_at=CURRENT_TIMESTAMP""",
+                         (thread_id, json.dumps(context, ensure_ascii=False)))
 
     def list_threads(self) -> list[dict[str, str]]:
         with self._connect() as conn:
