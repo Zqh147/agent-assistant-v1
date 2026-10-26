@@ -3,7 +3,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app app
-COPY data/knowledge.md data/knowledge.md
+COPY data/knowledge.md data/demo_orders.json data/demo_after_sales_rules.json data/
 COPY tests tests
 COPY .env.example .env.example
 EXPOSE 8000
