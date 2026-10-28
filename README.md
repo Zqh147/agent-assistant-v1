@@ -607,19 +607,20 @@ python -m app.check_support_service --require-online
 - 离线规则验证的是执行框架和业务边界，不验证在线模型的语义理解。
 - 在线结果会受模型版本、依赖版本和 API 配置影响，需要以本机实际运行为准。
 
-## Docker（可选，尚未在本环境验证）
+## Docker（可选，尚未实际验证）
 
 ```powershell
 docker build -t agent-assistant .
-docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e SESSION_DB=/state/sessions.db -v agent-state:/state agent-assistant
+docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e SESSION_DB=/state/sessions.db -e SUPPORT_DB=/state/support_demo.db -v agent-state:/state agent-assistant
 ```
 
 说明：
 
 - `.env` 只在运行时注入，不进入镜像。
 - 会话数据库写入命名卷，停止容器后仍保留。
-- 当前 `Dockerfile` 只复制了 `data/knowledge.md`，未复制 `data/demo_orders.json` 和 `data/demo_after_sales_rules.json`。如果要在容器内启用 `SUPPORT_MODE=demo`，需要补充复制这两个文件或挂载 `data/` 目录。
-- Docker 构建与运行尚未在当前环境实际验证。
+- 镜像包含 demo 知识库、演示订单和演示售后规则，可直接启用 `SUPPORT_MODE=demo`；会话与售后数据库都写入命名卷。
+- 容器内的 `127.0.0.1` 指向容器自身。如需连接宿主机上的 RAG 服务，可设置 `-e RAG_SERVICE_URL=http://host.docker.internal:8001`（Linux 需额外加 `--add-host=host.docker.internal:host-gateway`），或使用 `RAG_BACKEND=demo`。
+- Docker 构建与运行尚未实际验证。
 
 ## 当前边界
 
@@ -632,6 +633,12 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e SESSION_DB=/state/sess
 - 工具超时只能停止等待，无法强制终止运行中的线程。
 - 依赖使用 `requirements.txt` 中的版本范围，没有跨平台精确锁文件。
 - 售后草稿编辑、取消、后台审核和真实售后系统对接尚未实现。
+
+## 相关文档
+
+- [`docs/design-notes.md`](docs/design-notes.md)：设计决策、取舍与常见问题
+- [`docs/demo.md`](docs/demo.md)：连续工具调用、重启恢复与工具错误的演示用例
+- [`docs/test-report.md`](docs/test-report.md)：售后场景测试报告
 
 ## 代码阅读顺序
 
