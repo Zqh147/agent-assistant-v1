@@ -19,6 +19,7 @@ from pydantic import (
 from app.support_tools import SupportTools
 
 from .dynamic_supervisor import DynamicSupervisor
+from .intent_router import IntentRouter
 from .knowledge_agent import KnowledgeAgent
 from .order_agent import OrderAgent
 from .ticket_agent import TicketAgent
@@ -45,7 +46,8 @@ class MultiAgentChatRequest(BaseModel):
         max_length=100,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     )
-    task_type: TaskType
+    # Omit task_type to let the LLM intent router decide.
+    task_type: TaskType | None = None
     public_product_scope: dict[str, str] | None = None
 
     @field_validator("message")
@@ -58,38 +60,48 @@ class MultiAgentChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope(self):
-        if self.task_type == "knowledge_only":
-            scope = self.public_product_scope
-            required = {
-                "product_model",
-                "hardware_version",
-                "region",
-            }
+        scope = self.public_product_scope
+        required = {
+            "product_model",
+            "hardware_version",
+            "region",
+        }
 
-            if (
-                not isinstance(scope, dict)
-                or set(scope) != required
-                or any(
-                    not isinstance(value, str)
-                    or not value.strip()
-                    for value in scope.values()
-                )
-            ):
+        complete = (
+            isinstance(scope, dict)
+            and set(scope) == required
+            and all(
+                isinstance(value, str) and value.strip()
+                for value in scope.values()
+            )
+        )
+
+        if self.task_type == "knowledge_only":
+            if not complete:
                 raise ValueError(
                     "knowledge_only requires a complete "
                     "public_product_scope"
                 )
 
-            self.public_product_scope = {
-                key: value.strip()
-                for key, value in scope.items()
-            }
+        elif self.task_type is None:
+            # Routed by the LLM: the scope is optional and only used
+            # if the router chooses knowledge_only.
+            if scope is not None and not complete:
+                raise ValueError(
+                    "public_product_scope must be complete"
+                )
 
-        elif self.public_product_scope is not None:
+        elif scope is not None:
             raise ValueError(
                 "public_product_scope is only allowed "
                 "for knowledge_only"
             )
+
+        if complete:
+            self.public_product_scope = {
+                key: value.strip()
+                for key, value in scope.items()
+            }
 
         return self
 
@@ -97,7 +109,9 @@ class MultiAgentChatRequest(BaseModel):
 class MultiAgentChatResponse(BaseModel):
     request_id: str
     thread_id: str
-    task_type: TaskType
+    task_type: TaskType | None
+    routing_source: Literal["client", "llm"]
+    routing: dict[str, Any] | None = None
     status: str
     summary: str
     ticket_id: str | None = None
@@ -192,6 +206,56 @@ def create_multi_agent_router(agent) -> APIRouter:
             llm = agent.llm
             service = agent.support_service
 
+            task_type = request.task_type
+            public_scope = request.public_product_scope
+            routing_source = "client"
+            routing = None
+
+            if task_type is None:
+                routing_source = "llm"
+                decision = IntentRouter(llm).route(
+                    request.message,
+                    public_product_scope=public_scope,
+                )
+                routing = {
+                    "intent": decision.intent,
+                    "status": decision.status,
+                    "reason": decision.reason,
+                    "order_id": decision.order_id,
+                    "warnings": decision.warnings,
+                }
+
+                if decision.task_type is None:
+                    elapsed_ms = round(
+                        (time.perf_counter() - started) * 1000,
+                        2,
+                    )
+                    emit_event(
+                        logging.INFO,
+                        event="request_needs_clarification",
+                        request_id=request_id,
+                        routing_source=routing_source,
+                        intent=decision.intent,
+                        duration_ms=elapsed_ms,
+                        warnings=decision.warnings,
+                    )
+                    return MultiAgentChatResponse(
+                        request_id=request_id,
+                        thread_id=request.thread_id,
+                        task_type=None,
+                        routing_source=routing_source,
+                        routing=routing,
+                        status="needs_clarification",
+                        summary=decision.clarification,
+                    )
+
+                task_type = decision.task_type
+                public_scope = (
+                    decision.product_scope
+                    if task_type == "knowledge_only"
+                    else None
+                )
+
             order_agent = OrderAgent(
                 llm=llm,
                 support_tools=SupportTools(service),
@@ -216,8 +280,8 @@ def create_multi_agent_router(agent) -> APIRouter:
                     "user_messages": [request.message],
                 },
                 public_product_scope=(
-                    request.public_product_scope
-                    if request.task_type == "knowledge_only"
+                    public_scope
+                    if task_type == "knowledge_only"
                     else None
                 ),
             )
@@ -225,7 +289,7 @@ def create_multi_agent_router(agent) -> APIRouter:
             result = supervisor.run(
                 user_question=request.message,
                 tools=tools,
-                task_type=request.task_type,
+                task_type=task_type,
                 max_steps=8,
             )
 
@@ -264,7 +328,8 @@ def create_multi_agent_router(agent) -> APIRouter:
                 logging.INFO,
                 event="request_finished",
                 request_id=request_id,
-                task_type=request.task_type,
+                task_type=task_type,
+                routing_source=routing_source,
                 status=result.status,
                 duration_ms=elapsed_ms,
                 tool_count=len(trace),
@@ -274,7 +339,9 @@ def create_multi_agent_router(agent) -> APIRouter:
             return MultiAgentChatResponse(
                 request_id=request_id,
                 thread_id=request.thread_id,
-                task_type=request.task_type,
+                task_type=task_type,
+                routing_source=routing_source,
+                routing=routing,
                 status=result.status,
                 summary=result.summary,
                 ticket_id=ticket_id,
@@ -294,6 +361,9 @@ def create_multi_agent_router(agent) -> APIRouter:
                 event="request_failed",
                 request_id=request_id,
                 task_type=request.task_type,
+                routing_source=(
+                    "client" if request.task_type else "llm"
+                ),
                 duration_ms=elapsed_ms,
                 error_type=type(exc).__name__,
             )

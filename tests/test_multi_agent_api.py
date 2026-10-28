@@ -304,3 +304,172 @@ def test_internal_error_is_sanitized(
     assert response.status_code == 503
     assert "secret-internal-error" not in response.text
     assert response.headers.get("X-Request-ID")
+
+
+# --- LLM intent routing -----------------------------------------------------
+
+from app.multi_agent.intent_router import RouteDecision
+
+
+def stub_router(monkeypatch, decision, observed):
+    class StubRouter:
+        def __init__(self, llm):
+            observed["router_llm"] = llm
+
+        def route(self, message, *, public_product_scope=None):
+            observed["router_message"] = message
+            observed["router_scope"] = public_product_scope
+            return decision
+
+    monkeypatch.setattr(http_router, "IntentRouter", StubRouter)
+
+
+def test_omitted_task_type_is_routed_by_llm(api_client, monkeypatch):
+    client, observed, fake_agent = api_client
+    stub_router(
+        monkeypatch,
+        RouteDecision(
+            intent="order_ticket",
+            status="routed",
+            reason="用户要求报修",
+            order_id="DEMO-1001",
+        ),
+        observed,
+    )
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={
+            "message": "DEMO-1001 设备无法开机，帮我申请维修",
+            "thread_id": "route-001",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["task_type"] == "order_ticket"
+    assert body["routing_source"] == "llm"
+    assert body["routing"]["reason"] == "用户要求报修"
+    assert observed["router_llm"] is fake_agent.llm
+    assert observed["run"]["task_type"] == "order_ticket"
+    assert observed["public_product_scope"] is None
+
+
+def test_clarification_stops_before_any_agent(api_client, monkeypatch):
+    client, observed, _ = api_client
+    stub_router(
+        monkeypatch,
+        RouteDecision(
+            intent="order_ticket",
+            status="needs_clarification",
+            reason="缺少订单号",
+            clarification="请提供一个有效的订单号。",
+        ),
+        observed,
+    )
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={"message": "路由器坏了能退吗？", "thread_id": "route-002"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "needs_clarification"
+    assert body["task_type"] is None
+    assert body["summary"] == "请提供一个有效的订单号。"
+    assert body["routing"]["intent"] == "order_ticket"
+    assert body["tool_trace"] == []
+    assert "run" not in observed
+    assert "trusted_context" not in observed
+
+
+def test_routed_knowledge_uses_validated_scope(api_client, monkeypatch):
+    client, observed, _ = api_client
+    scope = {
+        "product_model": "Archer AX10",
+        "hardware_version": "V1",
+        "region": "US",
+    }
+    stub_router(
+        monkeypatch,
+        RouteDecision(
+            intent="knowledge_only",
+            status="routed",
+            reason="技术问题",
+            product_scope=scope,
+        ),
+        observed,
+    )
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={
+            "message": "Archer AX10 V1 US 怎么开访客网络？",
+            "thread_id": "route-003",
+        },
+    )
+
+    assert response.status_code == 200
+    assert observed["run"]["task_type"] == "knowledge_only"
+    assert observed["public_product_scope"] == scope
+
+
+def test_client_task_type_skips_router(api_client, monkeypatch):
+    client, observed, _ = api_client
+
+    class ExplodingRouter:
+        def __init__(self, llm):
+            raise AssertionError("router must not run")
+
+    monkeypatch.setattr(http_router, "IntentRouter", ExplodingRouter)
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={
+            "message": "DEMO-1001 设备无法开机，帮我申请维修",
+            "thread_id": "route-004",
+            "task_type": "order_ticket",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["routing_source"] == "client"
+    assert body["routing"] is None
+
+
+def test_incomplete_scope_without_task_type_is_422(api_client):
+    client, _, _ = api_client
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={
+            "message": "怎么开访客网络？",
+            "thread_id": "route-005",
+            "public_product_scope": {"product_model": "Archer AX10"},
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_router_failure_returns_503(api_client, monkeypatch):
+    client, _, _ = api_client
+
+    class FailingRouter:
+        def __init__(self, llm):
+            pass
+
+        def route(self, message, *, public_product_scope=None):
+            raise RuntimeError("model down")
+
+    monkeypatch.setattr(http_router, "IntentRouter", FailingRouter)
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={"message": "DEMO-1001 掉线", "thread_id": "route-006"},
+    )
+
+    assert response.status_code == 503
+    assert "model down" not in response.text
