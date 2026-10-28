@@ -63,10 +63,30 @@ def evidence_found(endpoint: str, body: dict) -> bool:
     return bool(body.get("evidence"))
 
 
-def judge(endpoint: str, case: dict, body: dict, tickets: list[dict]) -> dict:
+def resolve_ticket_expectation(case: dict, eligible: bool | None) -> str:
+    """'if_eligible' cases depend on the demo database's dates, so the
+    expected outcome is decided at run time by the business rules."""
+
+    expected = case["expect"]["ticket"]
+    if expected != "if_eligible":
+        return expected
+    if eligible is None:
+        raise ValueError(f"{case['id']}: eligibility is required for if_eligible")
+    return "draft" if eligible else "none"
+
+
+def judge(
+    endpoint: str,
+    case: dict,
+    body: dict,
+    tickets: list[dict],
+    *,
+    eligible: bool | None = None,
+) -> dict:
     """Return named checks for one response; every check must hold to pass."""
 
     expect = case["expect"]
+    expected_ticket = resolve_ticket_expectation(case, eligible)
     checks: dict[str, bool] = {}
 
     if expect.get("order_lookup") is not None:
@@ -80,13 +100,13 @@ def judge(endpoint: str, case: dict, body: dict, tickets: list[dict]) -> dict:
     drafts = [t for t in tickets if t["status"] == "draft"]
     submitted = [t for t in tickets if t["status"] == "submitted"]
 
-    if expect["ticket"] == "draft":
+    if expected_ticket == "draft":
         checks["ticket"] = (
             len(tickets) == 1
             and len(drafts) == 1
             and drafts[0]["order_id"] == case.get("order")
         )
-    elif expect["ticket"] == "none":
+    elif expected_ticket == "none":
         checks["ticket"] = not tickets
     else:  # optional
         checks["ticket"] = len(tickets) <= 1
@@ -96,7 +116,8 @@ def judge(endpoint: str, case: dict, body: dict, tickets: list[dict]) -> dict:
     return {
         "checks": checks,
         "passed": all(checks.values()),
-        "unexpected_write": expect["ticket"] == "none" and bool(tickets),
+        "expected_ticket": expected_ticket,
+        "unexpected_write": expected_ticket == "none" and bool(tickets),
         "unapproved_submission": bool(submitted),
     }
 
@@ -163,7 +184,7 @@ def tickets_for_thread(db_path: Path, thread_id: str) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def run_case(client, endpoint: str, case: dict, db_path: Path) -> dict:
+def run_case(client, endpoint: str, case: dict, db_path: Path, eligibility=None) -> dict:
     thread_id = f"cmp-{endpoint}-{uuid4().hex[:12]}"
     payload = {"message": case["message"], "thread_id": thread_id}
 
@@ -189,7 +210,8 @@ def run_case(client, endpoint: str, case: dict, db_path: Path) -> dict:
         body = {}
 
     tickets = tickets_for_thread(db_path, thread_id)
-    record.update(judge(endpoint, case, body, tickets))
+    eligible = eligibility(case) if eligibility and case["expect"]["ticket"] == "if_eligible" else None
+    record.update(judge(endpoint, case, body, tickets, eligible=eligible))
     if record["http_status"] != 200:
         record["passed"] = False
         record["checks"]["http_status"] = False
@@ -198,6 +220,7 @@ def run_case(client, endpoint: str, case: dict, db_path: Path) -> dict:
     record["status"] = body.get("status")
     record["routing"] = body.get("routing")
     record["tools"] = [item.get("tool") for item in body.get("tool_trace") or []]
+    record["tool_trace"] = body.get("tool_trace") or []
     record["tickets"] = tickets
     record["answer"] = body.get("answer") or body.get("summary")
     return record
@@ -232,6 +255,19 @@ def main() -> None:
     import httpx
 
     from app.config import settings
+    from app.support_service import SupportService
+    from app.support_store import SupportStore
+
+    service = SupportService(
+        SupportStore(settings.support_db, settings.demo_orders_path),
+        settings.support_rules_path,
+    )
+
+    def eligibility(case: dict) -> bool:
+        result = service.assess_after_sales(
+            case["order"], case["service_type"], customer_id=settings.demo_customer_id
+        )
+        return bool(result.get("eligible"))
 
     data = json.loads(args.cases.read_text(encoding="utf-8"))
     cases = data["cases"]
@@ -253,7 +289,7 @@ def main() -> None:
                 # Alternate the order so neither endpoint always goes first.
                 order = ("single", "multi") if (repeat + int(case["id"][-2:])) % 2 else ("multi", "single")
                 for endpoint in order:
-                    record = run_case(client, endpoint, case, settings.support_db)
+                    record = run_case(client, endpoint, case, settings.support_db, eligibility)
                     record["repeat"] = repeat
                     records[endpoint].append(record)
                     mark = "PASS" if record["passed"] else "FAIL " + str(

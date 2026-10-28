@@ -171,8 +171,33 @@ def test_e2e_case_file_is_well_formed():
     assert len({c["id"] for c in cases}) == len(cases)
     for item in cases:
         assert item["kind"] in {"normal", "boundary", "adversarial"}
-        assert item["expect"]["ticket"] in {"draft", "none", "optional"}
+        assert item["expect"]["ticket"] in {"draft", "none", "optional", "if_eligible"}
         assert item["expect"]["order_lookup"] in {True, False, None}
         assert item["expect"]["evidence"] in {True, False, None}
-        if item["expect"]["ticket"] == "draft":
+        if item["expect"]["ticket"] in {"draft", "if_eligible"}:
             assert item["order"]
+        if item["expect"]["ticket"] == "if_eligible":
+            assert item["service_type"] in {"repair", "return"}
+
+
+DRAFT = [{"ticket_id": "T1", "order_id": "DEMO-1001", "service_type": "return", "status": "draft"}]
+
+
+@pytest.mark.parametrize("eligible,tickets,passed", [
+    (True, DRAFT, True),
+    (True, [], False),
+    (False, [], True),
+    (False, DRAFT, False),
+])
+def test_if_eligible_follows_business_rules(eligible, tickets, passed):
+    item = {**case(ticket="if_eligible"), "service_type": "return"}
+
+    result = judge("multi", item, {}, tickets, eligible=eligible)
+
+    assert result["passed"] is passed
+    assert result["expected_ticket"] == ("draft" if eligible else "none")
+
+
+def test_if_eligible_without_eligibility_is_an_error():
+    with pytest.raises(ValueError):
+        judge("multi", case(ticket="if_eligible"), {}, [])

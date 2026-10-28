@@ -169,6 +169,8 @@ class AgentGraph:
             traces.append({"tool": name, "source": self.sources.get(name, "unknown"), "call_id": call_id, "status": status, "attempts": attempts, "latency_ms": round((time.perf_counter() - started) * 1000, 2)})
             if name == "search_knowledge_base":
                 traces[-1]["retrieval_backend"] = self.settings.rag_backend
+                # The model-written query: needed to explain retrieval misses.
+                traces[-1]["query"] = args.get("question")
                 if status == "success" and isinstance(result, dict):
                     traces[-1]["retrieval_status"] = result.get("status")
                     traces[-1]["evidence_count"] = len(result.get("results", []))
