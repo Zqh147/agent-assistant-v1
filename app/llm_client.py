@@ -45,10 +45,19 @@ class LLMClient:
     def online(self) -> bool:
         return self._client is not None
 
-    def invoke(self, messages: list[Any], tools: list[dict[str, Any]]) -> AIMessage:
+    def invoke(self,messages: list[Any],tools: list[dict[str, Any]],*,system_prompt: str | None = None,) -> AIMessage:
         if self._client is None:
             return self._offline(messages)
-        prompt = SYSTEM_PROMPT + (SUPPORT_PROMPT if self.settings.support_mode == "demo" else "")
+        if system_prompt is not None:
+            if not system_prompt.strip():
+                raise ValueError("system_prompt must not be blank")
+            prompt = system_prompt
+        else:
+            prompt = SYSTEM_PROMPT + (
+                SUPPORT_PROMPT if self.settings.support_mode == "demo" else ""
+            )
+
+
         payload: list[dict[str, Any]] = [{"role": "system", "content": prompt}]
         for message in messages:
             role = {"human": "user", "ai": "assistant", "tool": "tool", "system": "system"}.get(getattr(message, "type", "user"), "user")
