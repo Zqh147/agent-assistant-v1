@@ -14,7 +14,6 @@ import hashlib
 import json
 import statistics
 import time
-from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
