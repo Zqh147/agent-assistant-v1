@@ -226,9 +226,14 @@ def test_scope_extraction_only_trusts_text(message, expected):
     assert scope_from_model_output(message, args) == expected
 
 
-def test_routing_cases_file_is_well_formed():
-    path = Path(__file__).resolve().parent.parent / "data" / "eval" / "routing_cases.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
+EVAL_DIR = Path(__file__).resolve().parent.parent / "data" / "eval"
+# Frozen 2026-10-28 before the first evaluation run on this set.
+FROZEN_TEST_SHA256 = "8a7b30925681190d786094795bea9a650dd6391e253390c7ffad8bb1f9289ebf"
+
+
+@pytest.mark.parametrize("name", ["routing_dev.json", "routing_test.json"])
+def test_routing_case_files_are_well_formed(name):
+    data = json.loads((EVAL_DIR / name).read_text(encoding="utf-8"))
     cases = data["cases"]
 
     assert len({case["id"] for case in cases}) == len(cases)
@@ -240,12 +245,19 @@ def test_routing_cases_file_is_well_formed():
             assert case["status"] == "needs_clarification"
 
 
+def test_held_out_set_is_frozen():
+    """Any edit to the held-out set must be deliberate and visible in review."""
+    from scripts.evaluate_routing import cases_digest
+
+    assert cases_digest(EVAL_DIR / "routing_test.json") == FROZEN_TEST_SHA256
+
+
 def test_perfect_model_reproduces_labeled_status():
     """If the model's intent is right, validation must yield the labeled status."""
     import re
 
-    path = Path(__file__).resolve().parent.parent / "data" / "eval" / "routing_cases.json"
-    cases = json.loads(path.read_text(encoding="utf-8"))["cases"]
+    # Dev set only: the held-out set is never used to check the rules.
+    cases = json.loads((EVAL_DIR / "routing_dev.json").read_text(encoding="utf-8"))["cases"]
 
     def literal(pattern, text):
         match = re.search(pattern, text)

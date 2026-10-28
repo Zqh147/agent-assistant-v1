@@ -3,12 +3,14 @@
 Only the router runs (one LLM call per message); no sub-agent, RAG or
 database is touched. Run from the repository root:
 
-    python -m scripts.evaluate_routing --repeats 3
+    python -m scripts.evaluate_routing --split dev --repeats 3
+    python -m scripts.evaluate_routing --split test --repeats 3
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import statistics
 import time
@@ -18,7 +20,11 @@ from pathlib import Path
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CASES = ROOT / "data" / "eval" / "routing_cases.json"
+EVAL_DIR = ROOT / "data" / "eval"
+SPLITS = {
+    "dev": EVAL_DIR / "routing_dev.json",
+    "test": EVAL_DIR / "routing_test.json",
+}
 LABELS = (
     "order_only",
     "knowledge_only",
@@ -27,6 +33,12 @@ LABELS = (
     "order_knowledge_ticket",
     "unclear",
 )
+
+
+def cases_digest(path: Path) -> str:
+    """SHA-256 of the case file, ignoring CRLF/LF differences between checkouts."""
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha256(data).hexdigest()
 
 
 def rate(passed: int, total: int) -> dict:
@@ -156,7 +168,8 @@ def print_report(metrics: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=Path, default=DEFAULT_CASES)
+    parser.add_argument("--split", choices=sorted(SPLITS), default="dev")
+    parser.add_argument("--cases", type=Path, help="Custom case file; overrides --split.")
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
 
@@ -171,7 +184,9 @@ def main() -> None:
     if not llm.online:
         raise SystemExit("A real model is required: set DEEPSEEK_API_KEY in .env")
 
-    data = json.loads(args.cases.read_text(encoding="utf-8"))
+    cases_path = args.cases or SPLITS[args.split]
+    data = json.loads(cases_path.read_text(encoding="utf-8"))
+    print(f"Cases: {cases_path.name} ({data.get('split', 'custom')}), repeats={args.repeats}")
     cases = data["cases"]
     router = IntentRouter(llm)
 
@@ -214,6 +229,8 @@ def main() -> None:
         "executed_at": datetime.now(timezone.utc).isoformat(),
         "model": settings.model,
         "cases_version": data.get("version"),
+        "cases_split": data.get("split"),
+        "cases_sha256": cases_digest(cases_path),
         "repeats": args.repeats,
         "metrics": metrics,
         "runs": runs,
@@ -228,7 +245,7 @@ def main() -> None:
     report_dir = ROOT / "reports"
     report_dir.mkdir(exist_ok=True)
     path = report_dir / (
-        "routing_eval_"
+        f"routing_eval_{data.get('split', 'custom')}_"
         + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         + "_"
         + uuid4().hex[:6]

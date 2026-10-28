@@ -1,5 +1,7 @@
 {
-  "version": "routing-v1",
+  "version": "routing-dev-v1",
+  "split": "dev",
+  "usage": "Used while designing the router prompt and validation rules. Scores on this set are not a measure of generalization.",
   "description": "Hand-labeled user messages for evaluating multi-agent intent routing. intent = what the user wants; status = whether the request can be executed directly or needs clarification first.",
   "labels": {
     "order_only": "Only asks about an order or its device information.",
