@@ -28,6 +28,17 @@
 - **可观测执行记录**：每次工具调用记录来源、`call_id`、状态、尝试次数、耗时和业务状态；`plan` 与 `tool_trace` 按 `call_id` 对应。
 - **离线与在线分离的评估**：确定性离线规则验证执行框架；配置 API Key 后才运行真实模型在线验收。
 
+## 多 Agent 版本
+
+在单 Agent 之外，项目提供了一个多 Agent 实现（`POST /multi-agent/chat`），把一个模型拿全部工具，拆成按职责隔离权限的几个组件：
+
+- **意图路由器**：只调用一次模型，判断用户想做什么。订单号和设备范围以用户原话为准，由程序再校验一遍；信息缺失时先追问，不启动任何子 Agent。
+- **Dynamic Supervisor**：按任务类型只开放对应的子 Agent，并检查调用顺序和完成条件。
+- **订单 / 知识 / 工单三个子 Agent**：各自只能使用自己的工具。工单 Agent 在对话中只能创建草稿，正式提交必须经过人工审批接口（LangGraph `interrupt()`）。审批状态保存在 SQLite 中，服务重启后可以继续处理。
+- **可观测**：每个请求都返回路由判断、工具记录，以及 LLM 调用次数和 token 用量。
+
+单 Agent 的 `/chat` 保持不变，两者可以用同一批用例对比。架构、设计取舍和评测方法见 [`docs/multi-agent.md`](docs/multi-agent.md)。
+
 ## 业务流程
 
 ```mermaid
@@ -148,11 +159,26 @@ agent-assistant-v1/
 │   ├── evaluation_cases.py        # 通用验收用例
 │   ├── support_evaluation.py      # 售后流程验收
 │   ├── check_support_service.py   # 真实 HTTP 服务检查
-│   └── configure_support.py       # 写入业务配置并保留已有凭据
+│   ├── configure_support.py       # 写入业务配置并保留已有凭据
+│   ├── usage.py                   # 按请求统计 LLM 调用与 token
+│   └── multi_agent/               # 多 Agent 版本（见 docs/multi-agent.md）
+│       ├── intent_router.py       # LLM 意图路由 + 程序校验
+│       ├── dynamic_supervisor.py  # 按任务类型调度子 Agent
+│       ├── supervisor_tools.py    # 子 Agent 调用封装与订单验证状态
+│       ├── order_agent.py         # 只读订单与资格 Agent
+│       ├── knowledge_agent.py     # 设备知识检索 Agent
+│       ├── ticket_agent.py        # 工单草稿 Agent
+│       ├── ticket_approval_graph.py # interrupt 人工审批图
+│       ├── ticket_approval_api.py # 审批 HTTP 接口
+│       ├── approval_store.py      # 审批会话与检查点的 SQLite 持久化
+│       └── http_router.py         # /multi-agent/chat
 ├── data/
 │   ├── knowledge.md               # demo 知识库
 │   ├── demo_orders.json           # 演示订单
-│   └── demo_after_sales_rules.json# 版本化演示售后规则
+│   ├── demo_after_sales_rules.json# 版本化演示售后规则
+│   └── eval/                      # 路由开发集/测试集、端到端对比用例
+├── scripts/                       # 在线评测与检查脚本（python -m scripts.<名称>）
+├── docs/                          # 设计说明、演示用例与测试报告
 ├── tests/                         # pytest 回归测试
 ├── requirements.txt
 ├── Dockerfile
@@ -273,6 +299,10 @@ python -m app.configure_support --apply
 | `SUPPORT_DB` | `data/support_demo.db` | 演示订单与工单数据库 |
 | `SESSION_DB` | `data/agent_sessions.db` | 会话持久化数据库；`.env.example` 未显式列出 |
 | `DEMO_CUSTOMER_ID` | `demo-customer-001` | 未传 `customer_id` 时使用的演示客户 |
+| `APPROVAL_DB` | `data/ticket_approvals.db` | 工单审批会话与 LangGraph 检查点；服务重启后待审批工单仍可处理 |
+| `ENABLE_DEMO_TICKET_APPROVALS` | 未设置 | 设为 `1` 时启用 `/ticket-approvals` 演示审批接口 |
+| `APPROVAL_DEMO_TOKEN` | 空 | 审批接口的演示令牌，至少 32 个字符，通过 `X-Approval-Token` 请求头传入 |
+| `APPROVAL_DEMO_THREAD_ID` | 空 | 审批接口绑定的演示会话 |
 | `KNOWLEDGE_PATH` | `data/knowledge.md` | 知识库路径配置；当前图内 demo 检索固定读取 `data/knowledge.md`，该变量尚未接入工具 |
 
 数据库文件、`.env`、虚拟环境和报告目录均已加入 `.gitignore`。
@@ -285,7 +315,13 @@ python -m app.configure_support --apply
 | `GET` | `/tools` | 当前已注册的工具名称 |
 | `GET` | `/threads` | SQLite 中已保存的会话列表 |
 | `GET` | `/demo/orders` | 默认演示客户的示例订单；业务模块关闭时返回 404 |
-| `POST` | `/chat` | 执行一轮对话 |
+| `POST` | `/chat` | 单 Agent：执行一轮对话 |
+| `POST` | `/multi-agent/chat` | 多 Agent：不传 `task_type` 时由意图路由器判断，详见 [`docs/multi-agent.md`](docs/multi-agent.md) |
+| `POST` | `/ticket-approvals` | 为草稿工单发起人工审批（需启用演示审批接口） |
+| `GET` | `/ticket-approvals/{id}` | 查询审批状态 |
+| `POST` | `/ticket-approvals/{id}/decision` | 批准或拒绝；批准后重新校验并提交 |
+
+`/chat` 和 `/multi-agent/chat` 的响应都包含 `usage` 字段：本次请求的 LLM 调用次数和 token 用量。如果模型服务没有返回用量，`tokens_complete` 为 `false`。
 
 ### POST /chat 请求
 
@@ -528,13 +564,18 @@ MCP 模式启动时会：
 python -m pytest -q
 ```
 
-当前仓库在 Python 3.11.8 环境下的实际结果：
+当前共 210 个测试，全部不依赖真实模型或网络。
 
-```text
-63 passed, 1 warning in 4.44s
+覆盖范围包括：Agent 图、模型消息往返、执行计划、本地/MCP 工具、超时与重试、项目一检索适配器、SQLite 会话恢复、售后资格边界、确认与防绕过、幂等提交、业务上下文恢复、配置写入、HTTP UTF-8 响应，以及多 Agent 部分的工具白名单、意图路由校验、按请求统计用量、审批重启恢复和评测指标计算。
+
+### 多 Agent 评测
+
+```powershell
+python -m scripts.evaluate_routing --split test --repeats 3   # 意图路由，冻结的测试集
+python -m scripts.compare_agents --repeats 2                  # 单 Agent 与多 Agent 对比
 ```
 
-覆盖范围包括：Agent 图、模型消息往返、执行计划、本地/MCP 工具、超时与重试、项目一检索适配器、SQLite 会话恢复、售后资格边界、确认与防绕过、幂等提交、业务上下文恢复、配置写入和 HTTP UTF-8 响应。
+评测方法和结果见 [`docs/multi-agent.md`](docs/multi-agent.md)。
 
 ### 通用 Agent 验收
 
@@ -628,7 +669,8 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e SESSION_DB=/state/sess
 - `customer_id` 是演示参数，不是生产身份凭证；归属校验不等同于认证。
 - 订单、售后规则和工单都是本地演示数据，不连接真实电商平台或厂商系统。
 - `submitted` 表示本地工单等待人工审核，不包含退款、维修、物流或寄修办理。
-- 完整 LangGraph 图检查点仍在内存中，跨进程恢复的是完成轮次和业务上下文，不是执行中的节点。
+- 单 Agent 的完整 LangGraph 图检查点仍在内存中，跨进程恢复的是完成轮次和业务上下文，不是执行中的节点；多 Agent 审批流程的检查点保存在 SQLite 中。
+- 多 Agent 端点按单轮请求处理，尚未接入多轮会话记忆。
 - `plan` 是运行时增量记录，不是独立的任务分解与重规划器。
 - 工具超时只能停止等待，无法强制终止运行中的线程。
 - 依赖使用 `requirements.txt` 中的版本范围，没有跨平台精确锁文件。
@@ -636,6 +678,7 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e SESSION_DB=/state/sess
 
 ## 相关文档
 
+- [`docs/multi-agent.md`](docs/multi-agent.md)：多 Agent 架构、设计取舍、评测方法与结果
 - [`docs/design-notes.md`](docs/design-notes.md)：设计决策、取舍与常见问题
 - [`docs/demo.md`](docs/demo.md)：连续工具调用、重启恢复与工具错误的演示用例
 - [`docs/test-report.md`](docs/test-report.md)：售后场景测试报告
@@ -651,3 +694,4 @@ docker run --rm -p 127.0.0.1:8000:8000 --env-file .env -e SESSION_DB=/state/sess
 7. `app/planner.py`：执行步骤增量记录。
 8. `app/storage.py`：会话持久化与事务边界。
 9. `app/evaluation.py`、`app/support_evaluation.py`、`app/check_support_service.py`：验收与报告。
+10. `app/multi_agent/intent_router.py` → `dynamic_supervisor.py` → 三个子 Agent → `ticket_approval_*.py`：多 Agent 版本。

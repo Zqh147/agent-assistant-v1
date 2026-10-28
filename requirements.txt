@@ -1,4 +1,6 @@
 langgraph>=0.6,<1.0
+langgraph-checkpoint>=3,<4
+langgraph-checkpoint-sqlite>=3,<3.1
 langchain-core>=0.3,<1.0
 openai>=1.50,<2.0
 python-dotenv>=1.0,<2.0

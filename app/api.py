@@ -1,3 +1,17 @@
+import os
+import hmac
+
+from fastapi import Header
+
+from .multi_agent.approval_store import (
+    ApprovalStore,
+    open_approval_checkpointer,
+)
+from .multi_agent.ticket_approval_api import (
+    ActorContext,
+    create_ticket_approval_router,
+)
+
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
@@ -7,6 +21,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, field_validator
 
 from .graph import AgentGraph
+from .usage import track_usage
 
 agent = AgentGraph()
 
@@ -50,7 +65,9 @@ def health() -> dict[str, Any]:
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, Any]:
     try:
-        return agent.invoke(request.message, request.thread_id, customer_id=request.customer_id)
+        with track_usage() as usage:
+            result = agent.invoke(request.message, request.thread_id, customer_id=request.customer_id)
+        return {**result, "usage": usage.to_dict()}
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception:
@@ -72,3 +89,65 @@ def demo_orders():
         raise HTTPException(status_code=404, detail="演示售后模块未启用")
     return {"data_kind": "fictional_demo_orders", "customer_id": agent.settings.demo_customer_id,
             "orders": agent.support_service.store.list_orders(agent.settings.demo_customer_id)}
+
+
+
+# 仅用于本地开发演示的 HITL 审批接口。
+# 默认不启用；生产环境必须替换为真实身份认证和会话管理。
+if os.getenv("ENABLE_DEMO_TICKET_APPROVALS") == "1":
+
+    approval_token = os.getenv("APPROVAL_DEMO_TOKEN", "")
+    approval_thread_id = os.getenv("APPROVAL_DEMO_THREAD_ID", "")
+    approval_customer_id = agent.settings.demo_customer_id
+
+    if not approval_token or len(approval_token) < 32:
+        raise RuntimeError(
+            "APPROVAL_DEMO_TOKEN must contain at least 32 characters"
+        )
+
+    if not approval_thread_id.strip():
+        raise RuntimeError(
+            "APPROVAL_DEMO_THREAD_ID is required"
+        )
+
+    if agent.support_service is None:
+        raise RuntimeError(
+            "SupportService must be enabled for ticket approval"
+        )
+
+    def get_demo_approval_actor(
+        x_approval_token: str | None = Header(
+            default=None,
+            alias="X-Approval-Token",
+        ),
+    ) -> ActorContext:
+        if (
+            x_approval_token is None
+            or not hmac.compare_digest(
+                x_approval_token,
+                approval_token,
+            )
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid approval credentials",
+            )
+
+        return ActorContext(
+            customer_id=approval_customer_id,
+            thread_id=approval_thread_id,
+        )
+
+    app.include_router(
+        create_ticket_approval_router(
+            service=agent.support_service,
+            actor_dependency=get_demo_approval_actor,
+            # Pending approvals and their graph checkpoints survive restarts.
+            checkpointer=open_approval_checkpointer(agent.settings.approval_db),
+            approval_store=ApprovalStore(agent.settings.approval_db),
+        )
+    )
+
+from .multi_agent.http_router import create_multi_agent_router
+
+app.include_router(create_multi_agent_router(agent))
