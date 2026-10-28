@@ -7,6 +7,7 @@ from typing import Any
 from langchain_core.messages import AIMessage
 
 from .config import settings
+from .usage import record_llm_call
 
 SYSTEM_PROMPT = """你是一个可靠的任务执行 Agent。
 数值运算必须调用 calculate，包括简单加减乘除；不要自行心算代替工具。
@@ -47,6 +48,7 @@ class LLMClient:
 
     def invoke(self,messages: list[Any],tools: list[dict[str, Any]],*,system_prompt: str | None = None,) -> AIMessage:
         if self._client is None:
+            record_llm_call(None)
             return self._offline(messages)
         if system_prompt is not None:
             if not system_prompt.strip():
@@ -80,6 +82,7 @@ class LLMClient:
                 item["tool_call_id"] = getattr(message, "tool_call_id", "")
             payload.append(item)
         response = self._client.chat.completions.create(model=self.settings.model, messages=payload, tools=tools, temperature=0)
+        record_llm_call(getattr(response, "usage", None))
         choice = response.choices[0].message
         calls = []
         for call in choice.tool_calls or []:

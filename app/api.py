@@ -17,6 +17,7 @@ from fastapi.encoders import jsonable_encoder
 from pydantic import BaseModel, Field, field_validator
 
 from .graph import AgentGraph
+from .usage import track_usage
 
 agent = AgentGraph()
 
@@ -60,7 +61,9 @@ def health() -> dict[str, Any]:
 @app.post("/chat")
 def chat(request: ChatRequest) -> dict[str, Any]:
     try:
-        return agent.invoke(request.message, request.thread_id, customer_id=request.customer_id)
+        with track_usage() as usage:
+            result = agent.invoke(request.message, request.thread_id, customer_id=request.customer_id)
+        return {**result, "usage": usage.to_dict()}
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception:

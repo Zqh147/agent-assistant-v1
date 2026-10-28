@@ -17,6 +17,7 @@ from pydantic import (
 )
 
 from app.support_tools import SupportTools
+from app.usage import track_usage
 
 from .dynamic_supervisor import DynamicSupervisor
 from .intent_router import IntentRouter
@@ -122,6 +123,7 @@ class MultiAgentChatResponse(BaseModel):
         default_factory=list
     )
     error: str | None = None
+    usage: dict[str, Any] | None = None
 
 
 def emit_event(level: int, **fields: Any) -> None:
@@ -174,6 +176,16 @@ def create_multi_agent_router(agent) -> APIRouter:
         response_model=MultiAgentChatResponse,
     )
     def multi_agent_chat(
+        request: MultiAgentChatRequest,
+        response: Response,
+    ) -> MultiAgentChatResponse:
+        # Every model call made by the router, supervisor and sub-agents
+        # during this request is counted on the same meter.
+        with track_usage() as usage:
+            result = _handle(request, response)
+        return result.model_copy(update={"usage": usage.to_dict()})
+
+    def _handle(
         request: MultiAgentChatRequest,
         response: Response,
     ) -> MultiAgentChatResponse:

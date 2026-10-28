@@ -473,3 +473,36 @@ def test_router_failure_returns_503(api_client, monkeypatch):
 
     assert response.status_code == 503
     assert "model down" not in response.text
+
+
+def test_response_reports_llm_usage(api_client, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from app.usage import record_llm_call
+
+    client, observed, _ = api_client
+
+    class MeteredRouter:
+        def __init__(self, llm):
+            pass
+
+        def route(self, message, *, public_product_scope=None):
+            record_llm_call(NS(prompt_tokens=200, completion_tokens=30))
+            return RouteDecision(
+                intent="unclear",
+                status="needs_clarification",
+                reason="问候",
+                clarification="请说明需求。",
+            )
+
+    monkeypatch.setattr(http_router, "IntentRouter", MeteredRouter)
+
+    response = client.post(
+        "/multi-agent/chat",
+        json={"message": "你好", "thread_id": "usage-001"},
+    )
+
+    assert response.status_code == 200
+    usage = response.json()["usage"]
+    assert usage["llm_calls"] == 1
+    assert usage["total_tokens"] == 230
