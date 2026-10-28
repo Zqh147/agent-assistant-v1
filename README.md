@@ -308,13 +308,13 @@ python -m app.configure_support --apply
 | `DEEPSEEK_MODEL` | `deepseek-flash` | 模型名称 |
 | `MAX_STEPS` | `6` | 模型调用步数上限；达到后安全停止 |
 | `TOOL_TIMEOUT_SECONDS` | `15` | 单次工具等待超时（秒） |
-| `TOOL_TRANSPORT` | `local` | `local` 或 `mcp`；`.env.example` 未显式列出，可按需添加 |
+| `TOOL_TRANSPORT` | `local` | `local` 或 `mcp` |
 | `RAG_BACKEND` | `project1` | `project1` 调用项目一；`demo` 使用本地关键词检索 |
 | `RAG_SERVICE_URL` | `http://127.0.0.1:8001` | 项目一服务地址 |
 | `RAG_TIMEOUT_SECONDS` | `30` | 检索请求超时 |
 | `SUPPORT_MODE` | `demo` | `demo` 启用售后工具；`off` 关闭业务模块 |
 | `SUPPORT_DB` | `data/support_demo.db` | 演示订单与工单数据库 |
-| `SESSION_DB` | `data/agent_sessions.db` | 会话持久化数据库；`.env.example` 未显式列出 |
+| `SESSION_DB` | `data/agent_sessions.db` | 会话持久化数据库 |
 | `DEMO_CUSTOMER_ID` | `demo-customer-001` | 未传 `customer_id` 时使用的演示客户 |
 | `APPROVAL_DB` | `data/ticket_approvals.db` | 工单审批会话与 LangGraph 检查点；服务重启后待审批工单仍可处理 |
 | `ENABLE_DEMO_TICKET_APPROVALS` | 未设置 | 设为 `1` 时启用 `/ticket-approvals` 演示审批接口 |

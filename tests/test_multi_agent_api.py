@@ -122,7 +122,7 @@ def test_multi_agent_chat_success(api_client):
                 "订单 DEMO-1001 设备频繁掉线，"
                 "请准备维修工单草稿。"
             ),
-            "thread_id": "day05-test-001",
+            "thread_id": "multi-agent-test-001",
             "task_type": "order_ticket",
         },
     )
@@ -133,7 +133,7 @@ def test_multi_agent_chat_success(api_client):
 
     assert body["status"] == "pending_confirmation"
     assert body["ticket_id"] == "TKT-TEST123"
-    assert body["thread_id"] == "day05-test-001"
+    assert body["thread_id"] == "multi-agent-test-001"
 
     assert len(body["tool_trace"]) == 2
 
@@ -145,7 +145,7 @@ def test_multi_agent_chat_success(api_client):
     )
 
     assert observed["trusted_context"]["thread_id"] == (
-        "day05-test-001"
+        "multi-agent-test-001"
     )
     assert body["request_id"]
     assert response.headers["X-Request-ID"] == body["request_id"]
