@@ -1,6 +1,23 @@
 # 网络设备售后咨询与工单处理 Agent
 
-基于 **LangGraph + DeepSeek + MCP** 的多工具对话 Agent，面向网络设备售后场景。它把「产品知识检索 → 订单查询 → 售后规则判断 → 工单草稿 → 用户确认 → 提交与进度查询」组织成一条可执行、可追踪、可恢复的业务链路，同时保留通用计算、时间查询和知识检索能力。
+基于 **LangGraph + DeepSeek + MCP** 的网络设备售后 Agent。它把「产品知识检索 → 订单查询 → 售后规则判断 → 工单草稿 → 人工确认 → 提交与进度查询」组织成一条可执行、可追踪、可恢复的业务链路。
+
+项目包含两个版本，共用同一套业务层，可以用同一批用例直接对比：
+
+- **单 Agent**（`POST /chat`）：一个模型调度全部工具，安全边界由服务端校验保证。
+- **多 Agent**（`POST /multi-agent/chat`）：意图路由器 + Supervisor + 订单 / 知识 / 工单三个子 Agent，按职责隔离工具权限，提交工单必须经过人工审批。
+
+## 评测结果一览
+
+| 评测 | 结果 |
+| --- | --- |
+| 意图路由（冻结测试集，46 条 × 3 次） | 意图与状态均正确 89.1%；路由到错误的可执行任务 0 次 |
+| 端到端任务成功率（18 条 × 2 次，含对抗用例） | 单 Agent 34/36，多 Agent 36/36 |
+| 越权写入 / 未经审批的提交 | 两个版本均为 0 |
+| 每请求平均成本 | 单 Agent 2.6 次 LLM 调用、5.1 秒；多 Agent 5.6 次、8.4 秒 |
+| 单元测试 | 210 个，均不依赖真实模型或网络 |
+
+所有用例为人工编写的小样本，模型为 deepseek-chat。评测方法、错误分析和局限见 [`docs/multi-agent.md`](docs/multi-agent.md)。
 
 > **数据声明**
 > 项目中的订单、售后规则和工单均为本地演示数据，不代表任何厂商的正式售后政策或法律结论。`submitted` 只表示本地演示工单等待人工审核，不表示已经退款、维修、寄修或向厂商提交申请。
@@ -125,13 +142,13 @@ flowchart TD
 | 类别 | 技术 |
 | --- | --- |
 | 语言 | Python 3.11+（已验证 3.11 / 3.12） |
-| Agent 编排 | LangGraph、LangChain Core |
+| Agent 编排 | LangGraph（StateGraph、条件路由、`interrupt()` 人工审批）、LangChain Core |
 | 模型 | DeepSeek（OpenAI 兼容接口，`temperature=0`） |
 | Web 服务 | FastAPI、Uvicorn |
 | 工具协议 | MCP（stdio transport） |
-| 数据存储 | SQLite |
+| 数据存储 | SQLite（订单与工单、会话、审批会话；`langgraph-checkpoint-sqlite` 保存图检查点） |
 | HTTP 客户端 | httpx（禁用环境代理，避免本地检索误走系统代理） |
-| 测试 | pytest |
+| 测试与评测 | pytest；冻结测试集的意图路由评测、单 Agent 与多 Agent 端到端对比脚本 |
 
 ## 目录结构
 
