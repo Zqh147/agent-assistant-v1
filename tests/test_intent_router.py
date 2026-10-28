@@ -278,3 +278,33 @@ def test_perfect_model_reproduces_labeled_status():
             mismatches.append((case["id"], decision.status, case["status"]))
 
     assert mismatches == []
+
+
+@pytest.mark.parametrize("message,claimed_region,expected_region", [
+    ("AX20 V1 us 怎么改信道", "us", "US"),
+    ("Archer AX10 V1 美版 怎么设置 IPv6", "美版", "US"),
+    ("Archer AX10 V1 美版 怎么设置 IPv6", "US", "US"),
+    ("AX10 V1 欧版 怎么开访客网络", "EU", "EU"),
+])
+def test_region_variants_are_normalized(message, claimed_region, expected_region):
+    model = "AX20" if "AX20" in message else "AX10"
+    scope = scope_from_model_output(
+        message,
+        {"product_model": model, "hardware_version": "V1", "region": claimed_region},
+    )
+
+    assert scope is not None
+    assert scope["region"] == expected_region
+
+
+@pytest.mark.parametrize("message", [
+    "can you help us set up AX10 V1",   # "us" is a word here, not a region
+    "AX10 V1 US 美版欧版都有吗",          # conflicting regions
+])
+def test_ambiguous_region_is_not_accepted(message):
+    scope = scope_from_model_output(
+        message,
+        {"product_model": "AX10", "hardware_version": "V1", "region": "US"},
+    )
+
+    assert scope is None

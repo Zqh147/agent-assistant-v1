@@ -139,7 +139,37 @@ _MODEL = re.compile(r"(?<![A-Za-z0-9])AX\s?(\d{2,4})(?![0-9])", re.IGNORECASE)
 _VERSION = re.compile(r"(?<![A-Za-z0-9])V(\d+(?:\.\d+)?)(?![0-9.])", re.IGNORECASE)
 # A closed list: a generic two-letter pattern would also match "AX" in
 # "AX10" or "AP" in "AP 模式".
-_REGION = re.compile(r"(?<![A-Za-z0-9])(US|EU|UK|CA|CN|JP|AU|DE|FR|RU|TW|BR)(?![A-Za-z0-9])")
+_REGION_CODES = ("US", "EU", "UK", "CA", "CN", "JP", "AU", "DE", "FR", "RU", "TW", "BR")
+_CODE_GROUP = "|".join(_REGION_CODES)
+_REGION = re.compile(rf"(?<![A-Za-z0-9])({_CODE_GROUP})(?![A-Za-z0-9])")
+# Lowercase codes are ordinary English words ("help us"), so they only count
+# directly after a hardware version, as in "AX20 V1 us".
+_REGION_AFTER_VERSION = re.compile(
+    rf"(?<![A-Za-z0-9])V\d+(?:\.\d+)?\s*({_CODE_GROUP})(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+_REGION_ALIASES = {
+    "美版": "US",
+    "美国版": "US",
+    "美规": "US",
+    "欧版": "EU",
+    "欧规": "EU",
+    "国行": "CN",
+}
+
+
+def _regions_in(text: str) -> set[str]:
+    found = {match.upper() for match in _REGION.findall(text)}
+    found |= {match.upper() for match in _REGION_AFTER_VERSION.findall(text)}
+    found |= {code for alias, code in _REGION_ALIASES.items() if alias in text}
+    return found
+
+
+def _normalize_region(value: str) -> str | None:
+    value = value.strip()
+    if value in _REGION_ALIASES:
+        return _REGION_ALIASES[value]
+    return value.upper() if value.upper() in _REGION_CODES else None
 
 
 def _find_unique(pattern: re.Pattern, text: str) -> str | None:
@@ -158,11 +188,12 @@ def scope_from_model_output(message: str, args: Mapping[str, Any]) -> dict[str, 
 
     model_in_text = _find_unique(_MODEL, text_without_orders)
     version_in_text = _find_unique(_VERSION, text_without_orders)
-    region_in_text = _find_unique(_REGION, text_without_orders)
+    regions = _regions_in(text_without_orders)
+    region_in_text = next(iter(regions)) if len(regions) == 1 else None
 
     claimed_model = _find_unique(_MODEL, str(args.get("product_model") or ""))
     claimed_version = _find_unique(_VERSION, str(args.get("hardware_version") or ""))
-    claimed_region = str(args.get("region") or "").strip().upper()
+    claimed_region = _normalize_region(str(args.get("region") or ""))
 
     if not (model_in_text and version_in_text and region_in_text):
         return None
