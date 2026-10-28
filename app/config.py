@@ -23,6 +23,7 @@ class Settings:
     rag_timeout_seconds: float = float(os.getenv("RAG_TIMEOUT_SECONDS", "30"))
     support_mode: str = os.getenv("SUPPORT_MODE", "demo")
     support_db: Path = ROOT / os.getenv("SUPPORT_DB", "data/support_demo.db")
+    approval_db: Path = ROOT / os.getenv("APPROVAL_DB", "data/ticket_approvals.db")
     demo_orders_path: Path = ROOT / "data/demo_orders.json"
     support_rules_path: Path = ROOT / "data/demo_after_sales_rules.json"
     demo_customer_id: str = os.getenv("DEMO_CUSTOMER_ID", "demo-customer-001")

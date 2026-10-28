@@ -3,6 +3,10 @@ import hmac
 
 from fastapi import Header
 
+from .multi_agent.approval_store import (
+    ApprovalStore,
+    open_approval_checkpointer,
+)
 from .multi_agent.ticket_approval_api import (
     ActorContext,
     create_ticket_approval_router,
@@ -138,6 +142,9 @@ if os.getenv("ENABLE_DEMO_TICKET_APPROVALS") == "1":
         create_ticket_approval_router(
             service=agent.support_service,
             actor_dependency=get_demo_approval_actor,
+            # Pending approvals and their graph checkpoints survive restarts.
+            checkpointer=open_approval_checkpointer(agent.settings.approval_db),
+            approval_store=ApprovalStore(agent.settings.approval_db),
         )
     )
 
