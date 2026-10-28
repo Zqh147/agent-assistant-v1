@@ -1,0 +1,57 @@
+{
+  "version": "routing-v1",
+  "description": "Hand-labeled user messages for evaluating multi-agent intent routing. intent = what the user wants; status = whether the request can be executed directly or needs clarification first.",
+  "labels": {
+    "order_only": "Only asks about an order or its device information.",
+    "knowledge_only": "Technical question about a device, no order number.",
+    "order_knowledge": "Order number plus a technical or troubleshooting question, no ticket request.",
+    "order_ticket": "Order number plus a repair or return application, no troubleshooting request.",
+    "order_knowledge_ticket": "Order number, troubleshooting first, then a repair or return application.",
+    "unclear": "Greeting, out-of-scope request, or intent that cannot be mapped to a supported task."
+  },
+  "cases": [
+    {"id": "oo-01", "message": "订单 DEMO-1001 买的是什么型号？", "intent": "order_only", "status": "routed"},
+    {"id": "oo-02", "message": "帮我查一下 DEMO-1002 这个订单现在是什么状态", "intent": "order_only", "status": "routed"},
+    {"id": "oo-03", "message": "DEMO-1003 是哪天签收的？", "intent": "order_only", "status": "routed"},
+    {"id": "oo-04", "message": "我的订单号是 DEMO-1005，看看发货了没有", "intent": "order_only", "status": "routed"},
+    {"id": "oo-05", "message": "查询订单DEMO-1001的设备硬件版本和销售地区", "intent": "order_only", "status": "routed"},
+    {"id": "oo-06", "message": "DEMO-1002 买的路由器是 AX20 吗？", "intent": "order_only", "status": "routed", "note": "Mentions a model name but only asks for order information."},
+    {"id": "oo-07", "message": "DEMO-1001 和 DEMO-1002 哪个是 AX20？", "intent": "order_only", "status": "needs_clarification", "note": "Two order numbers; one request must target one order."},
+
+    {"id": "ko-01", "message": "Archer AX10 V1 US 怎么修改 Wi-Fi 密码？", "intent": "knowledge_only", "status": "routed"},
+    {"id": "ko-02", "message": "AX20 V1 US 如何开启访客网络？", "intent": "knowledge_only", "status": "routed"},
+    {"id": "ko-03", "message": "Archer AX10 V1 US 恢复出厂设置和重启有什么区别？", "intent": "knowledge_only", "status": "routed"},
+    {"id": "ko-04", "message": "Archer AX20 V1 US 设置成 AP 模式后还能用家长控制吗？", "intent": "knowledge_only", "status": "routed"},
+    {"id": "ko-05", "message": "Archer AX10 V1 US 升级固件前要做哪些准备？", "intent": "knowledge_only", "status": "routed"},
+    {"id": "ko-06", "message": "路由器 Wi-Fi 经常掉线怎么排查？", "intent": "knowledge_only", "status": "needs_clarification", "note": "Technical question without model, hardware version or region."},
+    {"id": "ko-07", "message": "AX10 怎么设置 PPPoE？", "intent": "knowledge_only", "status": "needs_clarification", "note": "Model given, hardware version and region missing."},
+
+    {"id": "ok-01", "message": "DEMO-1001 的路由器老是掉线，有什么排查办法？", "intent": "order_knowledge", "status": "routed"},
+    {"id": "ok-02", "message": "订单 DEMO-1002 的设备怎么设置 PPPoE 拨号？", "intent": "order_knowledge", "status": "routed"},
+    {"id": "ok-03", "message": "请根据 DEMO-1001 的设备型号告诉我如何开启 AP 模式", "intent": "order_knowledge", "status": "routed"},
+    {"id": "ok-04", "message": "DEMO-1002 买的路由器连不上网，指示灯是橙色的，该怎么处理？", "intent": "order_knowledge", "status": "routed"},
+    {"id": "ok-05", "message": "DEMO-1001 的设备登录不上管理页面，先帮我看看怎么处理", "intent": "order_knowledge", "status": "routed"},
+    {"id": "ok-06", "message": "DEMO-1003 信号不好，我不想报修，只想知道怎么调信道和带宽", "intent": "order_knowledge", "status": "routed", "note": "Mentions repair but explicitly declines it."},
+
+    {"id": "ot-01", "message": "DEMO-1001 设备无法开机，帮我申请维修", "intent": "order_ticket", "status": "routed"},
+    {"id": "ot-02", "message": "订单 DEMO-1002 想退货，帮我准备退货申请", "intent": "order_ticket", "status": "routed"},
+    {"id": "ot-03", "message": "DEMO-1001 收到就坏了，直接帮我提交维修工单", "intent": "order_ticket", "status": "routed", "note": "Asks for direct submission; submission still requires separate approval."},
+    {"id": "ot-04", "message": "我要给 DEMO-1003 报修，电源灯不亮", "intent": "order_ticket", "status": "routed"},
+    {"id": "ot-05", "message": "DEMO-1002 用着用着就自己断电了，给我开个维修单吧", "intent": "order_ticket", "status": "routed"},
+    {"id": "ot-06", "message": "DEMO-1001 不想要了，帮我办退货", "intent": "order_ticket", "status": "routed"},
+    {"id": "ot-07", "message": "路由器坏了能退吗？", "intent": "order_ticket", "status": "needs_clarification", "note": "Return intent without an order number."},
+
+    {"id": "okt-01", "message": "DEMO-1001 的设备频繁掉线，先帮我查查排查方法，不行就申请维修", "intent": "order_knowledge_ticket", "status": "routed"},
+    {"id": "okt-02", "message": "订单 DEMO-1002 无线信号很弱，请先给出排查步骤，再准备维修工单草稿", "intent": "order_knowledge_ticket", "status": "routed"},
+    {"id": "okt-03", "message": "DEMO-1001 老掉线，先查一下官方资料，然后帮我报修", "intent": "order_knowledge_ticket", "status": "routed"},
+    {"id": "okt-04", "message": "DEMO-1003 恢复出厂后还是连不上网，查一下可能的原因，顺便帮我申请维修", "intent": "order_knowledge_ticket", "status": "routed"},
+    {"id": "okt-05", "message": "DEMO-1001 一直断网，你先查查官方的排查说明，再帮我开维修单", "intent": "order_knowledge_ticket", "status": "routed"},
+    {"id": "okt-06", "message": "DEMO-1002 退货前我想先确认是不是设置问题，查一下资料再帮我准备退货申请", "intent": "order_knowledge_ticket", "status": "routed"},
+
+    {"id": "un-01", "message": "你好", "intent": "unclear", "status": "needs_clarification"},
+    {"id": "un-02", "message": "今天天气怎么样？", "intent": "unclear", "status": "needs_clarification"},
+    {"id": "un-03", "message": "帮我查一下工单 TKT-1234 的进度", "intent": "unclear", "status": "needs_clarification", "note": "Ticket status queries are handled by the single-agent endpoint, not this workflow."},
+    {"id": "un-04", "message": "我想咨询一下", "intent": "unclear", "status": "needs_clarification"},
+    {"id": "un-05", "message": "你们家路由器和小米的哪个好？", "intent": "unclear", "status": "needs_clarification", "note": "Product comparison is out of scope."}
+  ]
+}
